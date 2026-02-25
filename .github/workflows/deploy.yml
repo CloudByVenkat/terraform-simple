@@ -34,7 +34,7 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
     
       - name: Terraform Format Check
-        run: terraform fmt -check
+        run: terraform fmt -check -diff -recursive
       
       - name: Terraform Init
         run: terraform init
