@@ -67,7 +67,7 @@ jobs:
           ARM_TENANT_ID: ${{ secrets.TENANT_ID }}
       
       - name: Upload Plan
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: tfplan
           path: tfplan
@@ -90,7 +90,7 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
      
       - name: Download Plan
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: tfplan
       
