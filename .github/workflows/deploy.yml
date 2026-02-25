@@ -53,7 +53,7 @@ jobs:
           else
             ENV="dev"
           fi
-          terraform workspace select $ENV || terraform workspace new $ENV
+          terraform workspace select -or-create $ENV
       
       - name: Terraform Validate
         run: terraform validate
