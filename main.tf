@@ -6,10 +6,10 @@ resource "random_string" "suffix" {
 }
 locals {
   common_tags = {
-   
-    Project     = var.project_name
-    ManagedBy   = "Terraform"
-    Owner       = "Solutions Architect"
+
+    Project   = var.project_name
+    ManagedBy = "Terraform"
+    Owner     = "Solutions Architect"
   }
 }
 
