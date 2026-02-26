@@ -1,82 +1,116 @@
-name: Deploy Infrastructure
+name: Terraform CI/CD
 
 on:
   push:
-    branches:
-      - main
-      - develop
+    branches: [main, develop]
   pull_request:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to deploy"
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - production
+
+env:
+  TF_VERSION: "1.6.0"
 
 jobs:
-  terraform:
-    name: Terraform Deploy
+# =========================
+# 1️⃣ VALIDATE & PLAN
+# =========================
+  validate:
+    name: Validate & Plan
     runs-on: ubuntu-latest
-    
+
+    # 🔐 Azure credentials available to ALL steps
+    env:
+      ARM_CLIENT_ID: ${{ secrets.CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.TENANT_ID }}
+
+      # 🎯 Centralized environment logic
+      TARGET_ENV: ${{ github.event.inputs.environment || (github.ref == 'refs/heads/main' && 'production' || 'dev') }}
+
+    outputs:
+      target_env: ${{ env.TARGET_ENV }}
+
     steps:
-      # Checkout code
       - name: Checkout
         uses: actions/checkout@v3
-      
-      # Setup Terraform
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
-    
-      # Determine environment from branch
-      - name: Set Environment
-        id: set-env
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "environment=prod" >> $GITHUB_OUTPUT
-          else
-            echo "environment=dev" >> $GITHUB_OUTPUT
-          fi
-      
-      # Terraform Init
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -diff -recursive
+
       - name: Terraform Init
         run: terraform init
-        env:
-          ARM_CLIENT_ID: ${{ secrets.CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.TENANT_ID }}
-      
-      # Create/Select Workspace
-      - name: Terraform Workspace
-        run: |
-          terraform workspace select ${{ steps.set-env.outputs.environment }} || terraform workspace new ${{ steps.set-env.outputs.environment }}
-      
-      # Terraform Format Check
-      - name: Terraform Format
-        run: terraform fmt -check
-        continue-on-error: true
-      
-      # Terraform Validate
+
+      - name: Select Workspace
+        run: terraform workspace select -or-create "$TARGET_ENV"
+
       - name: Terraform Validate
         run: terraform validate
-      
-      # Terraform Plan
+
       - name: Terraform Plan
         run: terraform plan -out=tfplan
-        env:
-          ARM_CLIENT_ID: ${{ secrets.CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.TENANT_ID }}
-      
-      # Terraform Apply (only on push to main/develop)
+
+      - name: Upload Plan Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: tfplan
+
+# =========================
+# 2️⃣ DEPLOY
+# =========================
+  deploy:
+    name: Deploy to ${{ needs.validate.outputs.target_env }}
+    needs: validate
+    runs-on: ubuntu-latest
+
+    # 🚀 Deploy on push (not PR)
+    if: github.event_name != 'pull_request'
+
+    # 🛑 Production approval handled by GitHub Environment
+    environment: ${{ needs.validate.outputs.target_env }}
+
+    env:
+      ARM_CLIENT_ID: ${{ secrets.CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.TENANT_ID }}
+      TARGET_ENV: ${{ needs.validate.outputs.target_env }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Download Plan Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: .
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Select Workspace
+        run: terraform workspace select -or-create "$TARGET_ENV"
+
       - name: Terraform Apply
-        if: github.event_name == 'push'
-        run: terraform apply tfplan
-        env:
-          ARM_CLIENT_ID: ${{ secrets.CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.TENANT_ID }}
-      
-      # Show Outputs
-      - name: Terraform Output
-        if: github.event_name == 'push'
-        run: terraform output -json
+        run: terraform apply -auto-approve tfplan
