@@ -1,2 +1,2 @@
 project_name = "cicd"
-location = "Canada Central"
+location     = "Canada Central"
