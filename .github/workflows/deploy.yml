@@ -82,7 +82,7 @@ jobs:
           path: tfplan
 
   deploy:
-    name: Deploy to ${{ github.event.inputs.environment || 'dev' }}
+    name: Deploy to ${{ github.event.inputs.environment || (github.ref == 'refs/heads/main' && 'production' || 'dev') }}
     needs: validate
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
