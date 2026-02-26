@@ -4,15 +4,20 @@ resource "random_string" "suffix" {
   special = false
   upper   = false
 }
+locals {
+  common_tags = {
+   
+    Project     = var.project_name
+    ManagedBy   = "Terraform"
+    Owner       = "Solutions Architect"
+  }
+}
+
 resource "azurerm_resource_group" "main" {
   name     = "rg-${var.project_name}-${terraform.workspace}-${random_string.suffix.result}"
   location = var.location
 
-  tags = {
-    Environment = terraform.workspace
-    ManagedBy   = "Terraform"
-    Project     = var.project_name
-  }
+  tags = local.common_tags
 }
 
 resource "azurerm_storage_account" "main" {
@@ -22,9 +27,5 @@ resource "azurerm_storage_account" "main" {
   account_tier             = "Standard"
   account_replication_type = terraform.workspace == "prod" ? "GRS" : "LRS"
 
-  tags = {
-    Environment = terraform.workspace
-    ManagedBy   = "Terraform"
-    Project     = var.project_name
-  }
+  tags = local.common_tags
 }
