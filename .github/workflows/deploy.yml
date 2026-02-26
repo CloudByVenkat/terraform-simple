@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Environment to deploy'
+        description: "Environment to deploy"
         required: true
         type: choice
         options:
@@ -17,12 +17,28 @@ on:
           - production
 
 env:
-  TF_VERSION: '1.6.0'
+  TF_VERSION: "1.6.0"
 
 jobs:
+# =========================
+# 1️⃣ VALIDATE & PLAN
+# =========================
   validate:
     name: Validate & Plan
     runs-on: ubuntu-latest
+
+    # 🔐 Azure credentials available to ALL steps
+    env:
+      ARM_CLIENT_ID: ${{ secrets.CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.TENANT_ID }}
+
+      # 🎯 Centralized environment logic
+      TARGET_ENV: ${{ github.event.inputs.environment || (github.ref == 'refs/heads/main' && 'production' || 'dev') }}
+
+    outputs:
+      target_env: ${{ env.TARGET_ENV }}
 
     steps:
       - name: Checkout
@@ -38,55 +54,42 @@ jobs:
 
       - name: Terraform Init
         run: terraform init
-        env:
-          ARM_CLIENT_ID: ${{ secrets.CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.TENANT_ID }}
 
-      - name: Set Environment
-        shell: bash
-        run: |
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            ENV="${{ github.event.inputs.environment }}"
-          elif [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
-            ENV="production"
-          else
-            ENV="dev"
-          fi
-          echo "ENV=$ENV" >> $GITHUB_ENV
-          echo "Using workspace: $ENV"
-
-        env:
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-          GITHUB_REF: ${{ github.ref }}
-
-      - name: Select Terraform Workspace
-        run: terraform workspace select -or-create "$ENV"
+      - name: Select Workspace
+        run: terraform workspace select -or-create "$TARGET_ENV"
 
       - name: Terraform Validate
         run: terraform validate
 
       - name: Terraform Plan
         run: terraform plan -var="project_name=myapp" -out=tfplan
-        env:
-          ARM_CLIENT_ID: ${{ secrets.CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.TENANT_ID }}
 
-      - name: Upload Plan
+      - name: Upload Plan Artifact
         uses: actions/upload-artifact@v4
         with:
           name: tfplan
           path: tfplan
 
+# =========================
+# 2️⃣ DEPLOY
+# =========================
   deploy:
-    name: Deploy to ${{ github.event.inputs.environment || (github.ref == 'refs/heads/main' && 'production' || 'dev') }}
+    name: Deploy to ${{ needs.validate.outputs.target_env }}
     needs: validate
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.event_name == 'workflow_dispatch'
-    environment: ${{ github.event.inputs.environment || (github.ref == 'refs/heads/main' && 'production' || 'dev') }}
+
+    # 🚀 Deploy on push (not PR)
+    if: github.event_name != 'pull_request'
+
+    # 🛑 Production approval handled by GitHub Environment
+    environment: ${{ needs.validate.outputs.target_env }}
+
+    env:
+      ARM_CLIENT_ID: ${{ secrets.CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.TENANT_ID }}
+      TARGET_ENV: ${{ needs.validate.outputs.target_env }}
 
     steps:
       - name: Checkout
@@ -97,7 +100,7 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Download Plan
+      - name: Download Plan Artifact
         uses: actions/download-artifact@v4
         with:
           name: tfplan
@@ -105,35 +108,9 @@ jobs:
 
       - name: Terraform Init
         run: terraform init
-        env:
-          ARM_CLIENT_ID: ${{ secrets.CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.TENANT_ID }}
 
-      - name: Set Environment
-        shell: bash
-        run: |
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            ENV="${{ github.event.inputs.environment }}"
-          elif [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
-            ENV="production"
-          else
-            ENV="dev"
-          fi
-          echo "ENV=$ENV" >> $GITHUB_ENV
-          echo "Using workspace: $ENV"
-        env:
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-          GITHUB_REF: ${{ github.ref }}
-
-      - name: Select Terraform Workspace
-        run: terraform workspace select -or-create "$ENV"
+      - name: Select Workspace
+        run: terraform workspace select -or-create "$TARGET_ENV"
 
       - name: Terraform Apply
         run: terraform apply -auto-approve tfplan
-        env:
-          ARM_CLIENT_ID: ${{ secrets.CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.TENANT_ID }}
