@@ -14,7 +14,7 @@ on:
         options:
           - dev
           - staging
-          - production
+          - prod
 
 env:
   TF_VERSION: "1.6.0"
@@ -35,7 +35,7 @@ jobs:
       ARM_TENANT_ID: ${{ secrets.TENANT_ID }}
 
       # 🎯 Centralized environment logic
-      TARGET_ENV: ${{ github.event.inputs.environment || (github.ref == 'refs/heads/main' && 'production' || 'dev') }}
+      TARGET_ENV: ${{ github.event.inputs.environment || (github.ref == 'refs/heads/main' && 'prod' || 'dev') }}
 
     outputs:
       target_env: ${{ env.TARGET_ENV }}
